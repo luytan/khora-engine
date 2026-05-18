@@ -31,7 +31,7 @@ impl HtmlParameters {
                 i += 1;
                 old_i = i;
             } else {
-                parameters.push(&bytes[i - 1 + 1..bytes.len()]);
+                parameters.push(&bytes[i - 1 + 1..bytes.len() - 2]);
             }
         }
         HtmlParameters {
@@ -42,9 +42,32 @@ impl HtmlParameters {
     }
 }
 
+#[derive(Debug)]
 struct HtmlHost {
     ip_address: String,
-    port: u8,
+    port: String,
+}
+impl HtmlHost {
+    pub fn new(bytes: &[u8]) -> HtmlHost {
+        let mut parameters: Vec<&[u8]> = Vec::new();
+        let mut i = 0;
+        let mut old_i = 0;
+        for byte in bytes {
+            if *byte == 58 {
+                parameters.push(&bytes[old_i..i]);
+                i += 1;
+                old_i = i;
+            } else if parameters.len() == 2 {
+                parameters.push(&bytes[i..bytes.len()-3]);
+            } else {
+                i += 1;
+            }
+        }
+        HtmlHost {
+            ip_address: String::from_utf8_lossy(&parameters[1]).to_string(),
+            port: String::from_utf8_lossy(&parameters[2]).to_string(),
+        }
+    }
 }
 
 struct HtmlUserAgent {
@@ -63,19 +86,25 @@ fn build_not_found() -> String {
     );
 }
 
-fn build_response(data: &String) -> String {
+fn build_response(data: &String, kind: u8) -> String {
     let parameter: &str = "HTTP/1.1 200 OK";
-    let header: &str = "Content-Type: text/html";
-    let new_line: &str = "\r\n";;
+    let header = match kind {
+        0 => "Content-Type: text/html".to_string(),
+        1 => "Content-Type: text/css".to_string(),
+        2=> "Content-Type: application/javascript".to_string(),
+        _ => "Content-Type: text/plain".to_string(),
+    };
+    let new_line: &str = "\r\n";
     return format!(
         "{}{}{}{}{}{}",
         parameter, new_line, header, new_line, new_line, data
     );
 }
 
-fn return_message(mut stream: TcpStream, index: &String) {
+fn handle_request(mut stream: TcpStream, website: &Vec<String>) {
     let mut buffer: Vec<u8> = vec![0; 1024];
     let _ = stream.read(&mut buffer);
+    let mut html_separation: Vec<u32> = Vec::new();
 
     // find the parameter
     let mut i = 0;
@@ -85,26 +114,37 @@ fn return_message(mut stream: TcpStream, index: &String) {
         } else {
             // for "10"
             i += 2;
-            break;
+            html_separation.push(i);
         }
     }
-    let parameters: HtmlParameters = HtmlParameters::new(&buffer[0..i]);
+    let parameters: HtmlParameters = HtmlParameters::new(&buffer[0..html_separation[0] as usize]);
+    println!("parameters: {:?}", parameters);
+    let host: HtmlHost =
+        HtmlHost::new(&buffer[html_separation[0] as usize..html_separation[1] as usize]);
+    println!("host: {:?}", host);
     if parameters.method != "GET" {
         // here return error 500 or idk
         let _ = stream.write(build_not_found().as_bytes());
-    } else {
-        let _ = stream
-            .write(build_response(index).as_bytes());
     }
+    
+    let _ = match parameters.uri.as_str() {
+        "/" => stream.write(build_response(&website[0], 0).as_bytes()),
+        "/assets/index-lJN6PqaB.js" => stream.write(build_response(&website[1], 2).as_bytes()),
+        "/assets/index-Crm0PPzq.css" => stream.write(build_response(&website[2], 1).as_bytes()),
+        _ => stream.write(build_not_found().as_bytes()),
+    };
 }
 
 fn main() -> std::io::Result<()> {
     println!("Starting server...");
-    let index = fs::read_to_string("index.html")?;
+    let mut website: Vec<String> = Vec::new();
+    website.push(fs::read_to_string("index.html")?);
+    website.push(fs::read_to_string("index-lJN6PqaB.js")?);
+    website.push(fs::read_to_string("index-Crm0PPzq.css")?);
     let listener = TcpListener::bind("127.0.0.1:8080")?;
     for stream in listener.incoming() {
         println!("Wow a stream");
-        return_message(stream?, &index);
+        handle_request(stream?, &website);
     }
     Ok(())
 }
