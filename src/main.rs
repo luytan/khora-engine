@@ -119,9 +119,9 @@ fn handle_request(mut stream: TcpStream, website: &Vec<String>) {
     }
     let parameters: HtmlParameters = HtmlParameters::new(&buffer[0..html_separation[0] as usize]);
     println!("parameters: {:?}", parameters);
-    let host: HtmlHost =
-        HtmlHost::new(&buffer[html_separation[0] as usize..html_separation[1] as usize]);
-    println!("host: {:?}", host);
+    //let host: HtmlHost =
+    //    HtmlHost::new(&buffer[html_separation[0] as usize..html_separation[1] as usize]);
+    //println!("host: {:?}", host);
     if parameters.method != "GET" {
         // here return error 500 or idk
         let _ = stream.write(build_not_found().as_bytes());
